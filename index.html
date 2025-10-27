@@ -25,13 +25,16 @@
  <p>Live Bell-state CHSH simulation in a noisy cavity.<br>
  <strong>Click to collapse the wavefunction.</strong></p>
 
- <div class="gist" id="gist"></div>
+ <div class="gist" id="gist">
+ <!-- Embedded Python code will be shown here -->
+ </div>
 
  <button id="runBtn">Collapse Now</button>
  <div class="progress"><div class="bar" id="bar"></div></div>
  <div class="result" id="output"></div>
  </div>
 
+ <!-- Pyodide (Python in browser) -->
  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js"></script>
  <script>
  let pyodide;
@@ -40,88 +43,146 @@
  const output = document.getElementById("output");
  const gistDiv = document.getElementById("gist");
 
+ // Embed the Python code in the gist div for display
  const pythonCode = `
 import qutip as qt
 import numpy as np
 
 def simulate_correlation(rho, theta_a, theta_b, num_trials):
-    theta_a_rad = np.deg2rad(theta_a)
-    theta_b_rad = np.deg2rad(theta_b)
-    ry_a = qt.Qobj([[np.cos(theta_a_rad/2), -np.sin(theta_a_rad/2)], 
-                    [np.sin(theta_a_rad/2), np.cos(theta_a_rad/2)]])
-    ry_b = qt.Qobj([[np.cos(theta_b_rad/2), -np.sin(theta_b_rad/2)], 
-                    [np.sin(theta_a_rad/2), np.cos(theta_b_rad/2)]])
-    rot_op = qt.tensor(ry_a, ry_b)
-    rho_rot = rot_op * rho * rot_op.dag()
-    p00 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,0)), qt.ket2dm(qt.basis(2,0))), rho_rot)
-    p01 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,0)), qt.ket2dm(qt.basis(2,1))), rho_rot)
-    p10 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,1)), qt.ket2dm(qt.basis(2,0))), rho_rot)
-    p11 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,1)), qt.ket2dm(qt.basis(2,1))), rho_rot)
-    total = p00 + p01 + p10 + p11
-    p00 /= total; p01 /= total; p10 /= total; p11 /= total
-    counts = np.random.multinomial(num_trials, [p00, p01, p10, p11])
-    E_sim = (counts[0] - counts[1] - counts[2] + counts[3]) / num_trials
-    return E_sim
+ theta_a_rad = np.deg2rad(theta_a)
+ theta_b_rad = np.deg2rad(theta_b)
+ ry_a = qt.Qobj([[np.cos(theta_a_rad/2), -np.sin(theta_a_rad/2)], 
+ [np.sin(theta_a_rad/2), np.cos(theta_a_rad/2)]])
+ ry_b = qt.Qobj([[np.cos(theta_b_rad/2), -np.sin(theta_b_rad/2)], 
+ [np.sin(theta_b_rad/2), np.cos(theta_b_rad/2)]])
+ rot_op = qt.tensor(ry_a, ry_b)
+ rho_rot = rot_op * rho * rot_op.dag()
+ p00 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,0)), qt.ket2dm(qt.basis(2,0))), rho_rot)
+ p01 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,0)), qt.ket2dm(qt.basis(2,1))), rho_rot)
+ p10 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,1)), qt.ket2dm(qt.basis(2,0))), rho_rot)
+ p11 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,1)), qt.ket2dm(qt.basis(2,1))), rho_rot)
+ total = p00 + p01 + p10 + p11
+ p00 /= total
+ p01 /= total
+ p10 /= total
+ p11 /= total
+ counts = np.random.multinomial(num_trials, [p00, p01, p10, p11])
+ E_sim = (counts[0] - counts[1] - counts[2] + counts[3]) / num_trials
+ return E_sim
 
 def full_chsh_cavity_simulation(angles, num_trials=5000, t=10.0, g=0.05, kappa=0.01, gamma=0.005, extra_noise=0.05):
-    a_deg, ap_deg, b_deg, bp_deg = angles
-    N_cav = 5
-    a1 = qt.tensor(qt.destroy(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.qeye(2))
-    sm1 = qt.tensor(qt.qeye(N_cav), qt.sigmam(), qt.qeye(N_cav), qt.qeye(2))
-    sz1 = qt.tensor(qt.qeye(N_cav), qt.sigmaz(), qt.qeye(N_cav), qt.qeye(2))
-    a2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.destroy(N_cav), qt.qeye(2))
-    sm2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.sigmam())
-    sz2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.sigmaz())
-    omega_c = omega_q = 1.0
-    H = omega_c * (a1.dag()*a1 + a2.dag()*a2) + (omega_q/2)*(sz1 + sz2) + g*(a1.dag()*sm1 + a1*sm1.dag() + a2.dag()*sm2 + a2*sm2.dag())
-    c_ops = [np.sqrt(kappa)*a1, np.sqrt(gamma)*sm1, np.sqrt(kappa)*a2, np.sqrt(gamma)*sm2]
-    vac = qt.basis(N_cav, 0); q0 = qt.basis(2,0); q1 = qt.basis(2,1)
-    psi0 = (qt.tensor(vac,q0,vac,q1) - qt.tensor(vac,q1,vac,q0)) / np.sqrt(2)
-    result = qt.mesolve(H, psi0, [0,t], c_ops)
-    rho_qubits = result.states[-1].ptrace([1,3])
-    rho_noisy = (1-extra_noise)*rho_qubits + (extra_noise/4)*qt.tensor(qt.qeye(2), qt.qeye(2))
-    E_ab = simulate_correlation(rho_noisy, a_deg, b_deg, num_trials)
-    E_apb = simulate_correlation(rho_noisy, ap_deg, b_deg, num_trials)
-    E_abp = simulate_correlation(rho_noisy, a_deg, bp_deg, num_trials)
-    E_apbp = simulate_correlation(rho_noisy, ap_deg, bp_deg, num_trials)
-    S = E_ab + E_apb + E_abp - E_apbp
-    bell = (qt.tensor(q0,q1) - qt.tensor(q1,q0)) / np.sqrt(2)
-    fidelity = qt.fidelity(rho_qubits, qt.ket2dm(bell))
-    return S, [E_ab, E_apb, E_abp, E_apbp], fidelity
+ a_deg, ap_deg, b_deg, bp_deg = angles
+ N_cav = 5
+ a1 = qt.tensor(qt.destroy(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.qeye(2))
+ sm1 = qt.tensor(qt.qeye(N_cav), qt.sigmam(), qt.qeye(N_cav), qt.qeye(2))
+ sz1 = qt.tensor(qt.qeye(N_cav), qt.sigmaz(), qt.qeye(N_cav), qt.qeye(2))
+ a2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.destroy(N_cav), qt.qeye(2))
+ sm2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.sigmam())
+ sz2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.sigmaz())
+ omega_c = 1.0
+ omega_q = 1.0
+ H = omega_c * a1.dag() * a1 + (omega_q / 2) * sz1 + g * (a1.dag() * sm1 + a1 * sm1.dag()) + \
+ omega_c * a2.dag() * a2 + (omega_q / 2) * sz2 + g * (a2.dag() * sm2 + a2 * sm2.dag())
+ c_ops = [np .sqrt(kappa) * a1, np.sqrt(gamma) * sm1, np.sqrt(kappa) * a2, np.sqrt(gamma) * sm2]
+ vac = qt.basis(N_cav, 0)
+ q0 = qt.basis(2, 0)
+ q1 = qt.basis(2, 1)
+ psi0 = (qt.tensor(vac, q0, vac, q1) - qt.tensor(vac, q1, vac, q0)) / np.sqrt(2)
+ times = np.linspace(0, t, 2)
+ result = qt.mesolve(H, psi0, times, c_ops=c_ops)
+ rho_t = result.states[-1]
+ rho_qubits = rho_t.ptrace([1, 3])
+ id2 = qt.qeye(2)
+ rho_noisy = (1 - extra_noise) * rho_qubits + (extra_noise / 4.0) * qt.tensor(id2, id2)
+ E_ab = simulate_correlation(rho_noisy, a_deg, b_deg, num_trials)
+ E_apb = simulate_correlation(rho_noisy, ap_deg, b_deg, num_trials)
+ E_abp = simulate_correlation(rho_noisy, a_deg, bp_deg, num_trials)
+ E_apbp = simulate_correlation(rho_noisy, ap_deg, bp_deg, num_trials)
+ S = E_ab + E_apb + E_abp - E_apbp
+ bell_qubits = (qt.tensor(q0, q1) - qt.tensor(q1, q0)) / np.sqrt(2)
+ fidelity = qt.fidelity(rho_qubits, qt.ket2dm(bell_qubits))
+ return S, [E_ab, E_apb, E_abp, E_apbp], fidelity
 
 angles = [0, 45, 22.5, 67.5]
 S, Es, fidelity = full_chsh_cavity_simulation(angles)
 print(f"S = {S}")
 print(f"Individual Es: {Es}")
-print(f"Fidelity: {fidelity}")
+print(f"Fidelity of qubit state after evolution: {fidelity}")
  `;
  gistDiv.textContent = pythonCode;
 
+ // Initialize Pyodide
  async function initPyodide() {
-    runBtn.disabled = true; runBtn.textContent = "Loading Python…";
-    pyodide = await loadPyodide();
-    await pyodide.loadPackage(["numpy", "qutip"]);
-    runBtn.disabled = false; runBtn.textContent = "Collapse Now";
+ runBtn.disabled = true;
+ runBtn.textContent = "Loading Python…";
+ pyodide = await loadPyodide();
+ await pyodide.loadPackage(["numpy", "qutip"]);
+ runBtn.disabled = false;
+ runBtn.text Content = "Collapse Now";
  }
 
+ // Run simulation
  async function runSimulation() {
-    if (!pyodide) return;
-    runBtn.disabled = true; runBtn.textContent = "Running…"; output.textContent = ""; bar.style.width = "0%";
-    const fullCode = `import sys, io\nsys.stdout = io.StringIO()\n${pythonCode}\nprint(sys.stdout.getvalue())`;
-    let progress = 0; const interval = setInterval(() => { progress = Math.min(progress + Math.random()*8, 98); bar.style.width = progress + "%"; }, 80);
-    try {
-       await pyodide.runPythonAsync(fullCode);
-       const raw = pyodide.globals.get("sys").stdout.getvalue();
-       clearInterval(interval); bar.style.width = "100%";
-       const S_match = raw.match(/S = ([\\d\\.-]+)/);
-       const S = S_match ? parseFloat(S_match[1]).toFixed(4) : "?.????";
-       const loss = S!=="?.????" ? ((2.8284 - parseFloat(S))/2.8284*100).toFixed(1) : "?";
-       output.innerHTML = `<strong>CHSH <span class="spooky">S = ${S}</span></strong> (max 2.828, classical ≤2)<br>Noise killed <strong>${loss}%</strong><br><span class="spooky">SPOOKY LINK SURVIVED</span><br><br><span style="color:#58a6ff;">Δ = THE OBSERVER</span><br>You are the collapse.<br>#QuantumTruth`;
-    } catch (e) { output.textContent = "Error: " + e.message; }
-    runBtn.disabled = false; runBtn.textContent = "Collapse Again";
+ if (!pyodide) return;
+ runBtn.disabled = true;
+ runBtn.textContent = "Running…";
+ output.textContent = "";
+ bar.style.width = "0%";
+
+ const fullCode = `
+import sys, io
+sys.stdout = io.StringIO()
+${pythonCode}
+print(sys.stdout.getvalue())
+ `;
+
+ let progress = 0;
+ const interval = setInterval(() => {
+ progress = Math.min(progress + Math.random() * 8, 98);
+ bar.style.width = progress + "%";
+ }, 80);
+
+ try {
+ const result = await pyodide.runPythonAsync(fullCode);
+ const raw = pyodide.globals.get("sys").stdout.getvalue();
+ clearInterval(interval);
+ bar.style.width = "100%";
+
+ // Format result dramatically
+ const S_match = raw.match(/S = ([\\d\\.]+)/);
+ const S = S_match ? parseFloat(S_match[1]).toFixed(4) : "?.????";
+ const loss = ((2.828 - parseFloat(S)) / 2.828 * 100).toFixed(1);
+
+ output.innerHTML = `
+<strong>CHSH violation parameter <span class="spooky">S = ${S}</span></strong>
+ (ideal = 2.828, classical limit ≤ 2)
+Noise killed <strong>${loss}%</strong> of the signal
+<span class="spooky">BUT THE SPOOKY LINK SURVIVED</span>
+
+<span style="color:#58a6ff;">Δ = THE OBSERVER</span>
+I ran the code
+I forced the collapse
+I saw the signal
+
+<span style="font-weight:bold;">You are the measurement</span>
+<span style="font-weight:bold;">You are the collapse</span>
+
+RT if you're done with the noise
+#QuantumTruth #EpsteinFiles
+ `.trim();
+ } catch (e) {
+ output.textContent = "Error: " + e.message;
+ } finally {
+ runBtn.disabled = false;
+ runBtn.textContent = "Collapse Again";
+ }
  }
 
- document.addEventListener("DOMContentLoaded", () => { initPyodide(); runBtn.addEventListener("click", runSimulation); });
+ // Ensure DOM is ready and start
+ document.addEventListener("DOMContentLoaded", () => {
+ initPyodide();
+ runBtn.addEventListener("click", runSimulation);
+ });
  </script>
 </body>
 </html>
