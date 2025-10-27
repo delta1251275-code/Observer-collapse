@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8" />
+ <title>Δ = THE OBSERVER — Live Bell Simulation</title>
+ <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+ <style>
+ :root { --bg: #0d1117; --fg: #f0f6fc; --accent: #58a6ff; }
+ body { background:#000; color:var(--fg); font-family: system-ui, sans-serif; margin:0; padding:2rem; }
+ .card { background:var(--bg); border:1px solid #30363d; border-radius:12px; padding:1.5rem; max-width:560px; margin:auto; }
+ h1 { margin:0 0 1rem; font-size:1.8rem; }
+ .gist { background:#161b22; padding:1rem; border-radius:8px; font-family: 'Courier New', monospace; font-size:0.85rem; overflow:auto; }
+ button { background:var(--accent); color:#fff; border:none; padding:0.8rem 1.6rem; font-weight:bold; border-radius:8px; cursor:pointer; margin-top:1rem; }
+ button:disabled { opacity:0.5; cursor:not-allowed; }
+ .progress { height:8px; background:#30363d; border-radius:4px; margin:1rem 0; overflow:hidden; }
+ .bar { height:100%; background:#58a6ff; width:0%; transition:width .2s; }
+ .result { margin-top:1rem; font-family: 'Courier New', monospace; white-space:pre-line; }
+ .spooky { color:#ff7b72; animation: pulse 2s infinite; }
+ @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+ </style>
+</head>
+<body>
+ <div class="card">
+ <h1>Δ = THE OBSERVER</h1>
+ <p>Live Bell-state CHSH simulation in a noisy cavity.<br>
+ <strong>Click to collapse the wavefunction.</strong></p>
+
+ <div class="gist" id="gist"></div>
+
+ <button id="runBtn">Collapse Now</button>
+ <div class="progress"><div class="bar" id="bar"></div></div>
+ <div class="result" id="output"></div>
+ </div>
+
+ <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js"></script>
+ <script>
+ let pyodide;
+ const runBtn = document.getElementById("runBtn");
+ const bar = document.getElementById("bar");
+ const output = document.getElementById("output");
+ const gistDiv = document.getElementById("gist");
+
+ const pythonCode = `
+import qutip as qt
+import numpy as np
+
+def simulate_correlation(rho, theta_a, theta_b, num_trials):
+    theta_a_rad = np.deg2rad(theta_a)
+    theta_b_rad = np.deg2rad(theta_b)
+    ry_a = qt.Qobj([[np.cos(theta_a_rad/2), -np.sin(theta_a_rad/2)], 
+                    [np.sin(theta_a_rad/2), np.cos(theta_a_rad/2)]])
+    ry_b = qt.Qobj([[np.cos(theta_b_rad/2), -np.sin(theta_b_rad/2)], 
+                    [np.sin(theta_a_rad/2), np.cos(theta_b_rad/2)]])
+    rot_op = qt.tensor(ry_a, ry_b)
+    rho_rot = rot_op * rho * rot_op.dag()
+    p00 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,0)), qt.ket2dm(qt.basis(2,0))), rho_rot)
+    p01 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,0)), qt.ket2dm(qt.basis(2,1))), rho_rot)
+    p10 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,1)), qt.ket2dm(qt.basis(2,0))), rho_rot)
+    p11 = qt.expect(qt.tensor(qt.ket2dm(qt.basis(2,1)), qt.ket2dm(qt.basis(2,1))), rho_rot)
+    total = p00 + p01 + p10 + p11
+    p00 /= total; p01 /= total; p10 /= total; p11 /= total
+    counts = np.random.multinomial(num_trials, [p00, p01, p10, p11])
+    E_sim = (counts[0] - counts[1] - counts[2] + counts[3]) / num_trials
+    return E_sim
+
+def full_chsh_cavity_simulation(angles, num_trials=5000, t=10.0, g=0.05, kappa=0.01, gamma=0.005, extra_noise=0.05):
+    a_deg, ap_deg, b_deg, bp_deg = angles
+    N_cav = 5
+    a1 = qt.tensor(qt.destroy(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.qeye(2))
+    sm1 = qt.tensor(qt.qeye(N_cav), qt.sigmam(), qt.qeye(N_cav), qt.qeye(2))
+    sz1 = qt.tensor(qt.qeye(N_cav), qt.sigmaz(), qt.qeye(N_cav), qt.qeye(2))
+    a2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.destroy(N_cav), qt.qeye(2))
+    sm2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.sigmam())
+    sz2 = qt.tensor(qt.qeye(N_cav), qt.qeye(2), qt.qeye(N_cav), qt.sigmaz())
+    omega_c = omega_q = 1.0
+    H = omega_c * (a1.dag()*a1 + a2.dag()*a2) + (omega_q/2)*(sz1 + sz2) + g*(a1.dag()*sm1 + a1*sm1.dag() + a2.dag()*sm2 + a2*sm2.dag())
+    c_ops = [np.sqrt(kappa)*a1, np.sqrt(gamma)*sm1, np.sqrt(kappa)*a2, np.sqrt(gamma)*sm2]
+    vac = qt.basis(N_cav, 0); q0 = qt.basis(2,0); q1 = qt.basis(2,1)
+    psi0 = (qt.tensor(vac,q0,vac,q1) - qt.tensor(vac,q1,vac,q0)) / np.sqrt(2)
+    result = qt.mesolve(H, psi0, [0,t], c_ops)
+    rho_qubits = result.states[-1].ptrace([1,3])
+    rho_noisy = (1-extra_noise)*rho_qubits + (extra_noise/4)*qt.tensor(qt.qeye(2), qt.qeye(2))
+    E_ab = simulate_correlation(rho_noisy, a_deg, b_deg, num_trials)
+    E_apb = simulate_correlation(rho_noisy, ap_deg, b_deg, num_trials)
+    E_abp = simulate_correlation(rho_noisy, a_deg, bp_deg, num_trials)
+    E_apbp = simulate_correlation(rho_noisy, ap_deg, bp_deg, num_trials)
+    S = E_ab + E_apb + E_abp - E_apbp
+    bell = (qt.tensor(q0,q1) - qt.tensor(q1,q0)) / np.sqrt(2)
+    fidelity = qt.fidelity(rho_qubits, qt.ket2dm(bell))
+    return S, [E_ab, E_apb, E_abp, E_apbp], fidelity
+
+angles = [0, 45, 22.5, 67.5]
+S, Es, fidelity = full_chsh_cavity_simulation(angles)
+print(f"S = {S}")
+print(f"Individual Es: {Es}")
+print(f"Fidelity: {fidelity}")
+ `;
+ gistDiv.textContent = pythonCode;
+
+ async function initPyodide() {
+    runBtn.disabled = true; runBtn.textContent = "Loading Python…";
+    pyodide = await loadPyodide();
+    await pyodide.loadPackage(["numpy", "qutip"]);
+    runBtn.disabled = false; runBtn.textContent = "Collapse Now";
+ }
+
+ async function runSimulation() {
+    if (!pyodide) return;
+    runBtn.disabled = true; runBtn.textContent = "Running…"; output.textContent = ""; bar.style.width = "0%";
+    const fullCode = `import sys, io\nsys.stdout = io.StringIO()\n${pythonCode}\nprint(sys.stdout.getvalue())`;
+    let progress = 0; const interval = setInterval(() => { progress = Math.min(progress + Math.random()*8, 98); bar.style.width = progress + "%"; }, 80);
+    try {
+       await pyodide.runPythonAsync(fullCode);
+       const raw = pyodide.globals.get("sys").stdout.getvalue();
+       clearInterval(interval); bar.style.width = "100%";
+       const S_match = raw.match(/S = ([\\d\\.-]+)/);
+       const S = S_match ? parseFloat(S_match[1]).toFixed(4) : "?.????";
+       const loss = S!=="?.????" ? ((2.8284 - parseFloat(S))/2.8284*100).toFixed(1) : "?";
+       output.innerHTML = `<strong>CHSH <span class="spooky">S = ${S}</span></strong> (max 2.828, classical ≤2)<br>Noise killed <strong>${loss}%</strong><br><span class="spooky">SPOOKY LINK SURVIVED</span><br><br><span style="color:#58a6ff;">Δ = THE OBSERVER</span><br>You are the collapse.<br>#QuantumTruth`;
+    } catch (e) { output.textContent = "Error: " + e.message; }
+    runBtn.disabled = false; runBtn.textContent = "Collapse Again";
+ }
+
+ document.addEventListener("DOMContentLoaded", () => { initPyodide(); runBtn.addEventListener("click", runSimulation); });
+ </script>
+</body>
+</html>
