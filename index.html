@@ -44,12 +44,25 @@
       50% { opacity: 0.5; }
       100% { opacity: 1; }
     }
+    #noise-slider {
+      width: 200px;
+      margin: 20px auto;
+    }
+    #noise-value {
+      display: block;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
   <h1>Δ = THE OBSERVER</h1>
   <p>Live Bell-State CHSH simulation in a noisy cavity.</p>
-  <p>Click to collapse the wavefunction.</p>
+  <p>Adjust noise level, then click to collapse the wavefunction.</p>
+  
+  <label for="noise-slider">Noise Level (0.0 - 0.1):</label>
+  <input type="range" id="noise-slider" min="0" max="0.1" step="0.001" value="0.005">
+  <span id="noise-value">0.005</span>
+  
   <div id="progress"></div>
   <button id="collapse">Collapse Now</button>
   <div id="result"></div>
@@ -64,7 +77,17 @@
     }
     let pyodideReadyPromise = main();
 
+    // Update noise value display
+    const slider = document.getElementById('noise-slider');
+    const noiseValue = document.getElementById('noise-value');
+    slider.addEventListener('input', () => {
+      noiseValue.textContent = slider.value;
+    });
+
     async function runSimulation() {
+      // Get current noise from slider
+      const noise_level = parseFloat(slider.value);
+
       // Simple progress bar animation (runs independently)
       const progress = document.getElementById('progress');
       progress.style.background = 'linear-gradient(to right, #00f 0%, #333 100%)';
@@ -129,9 +152,8 @@ def compute_chsh(rho, num_trials=5000):
 psi0 = qt.bell_state('00')
 rho0 = psi0 * psi0.dag()
 H = qt.Qobj(np.zeros((4,4)), dims=[[2,2],[2,2]])
-noise_level = 0.005  # Lowered for "SURVIVED" result
 extra_noise = 0.0  # Adjust if needed
-noise_level += extra_noise
+noise_level = ${noise_level} + extra_noise  # Use slider value
 c_ops = [np.sqrt(noise_level) * qt.tensor(qt.sigmam(), qt.qeye(2)), np.sqrt(noise_level) * qt.tensor(qt.qeye(2), qt.sigmam())]
 tlist = np.linspace(0, 0.5, 10)  # Short time for low decoherence
 result = qt.mesolve(H, rho0, tlist, c_ops)
@@ -148,21 +170,16 @@ print(output)
 `;
       let output = await pyodide.runPython(pythonCode);
       clearInterval(interval);
-      progress.style.background = '#333';  # Reset progress
+      progress.style.background = '#333';  // Reset progress
       const resultDiv = document.getElementById('result');
       resultDiv.innerText = output;
       if (Math.abs(parseFloat(output.split('\\n')[0].split(': ')[1])) > 2) {
         resultDiv.classList.add('pulse');
+      } else {
+        resultDiv.classList.remove('pulse');
       }
     }
     document.getElementById('collapse').addEventListener('click', runSimulation);
   </script>
 </body>
 </html>
-Instructions to Update:
-In your repo (https://github.com/delta1251275-code/Observer-collapse), edit index.html.
-Replace the entire content with this code.
-Commit the changes.
-Wait 1 min — the site auto-updates.
-Test on desktop: Click "Collapse Now" — should get S ~2.8, low loss, and "SPOOKY LINK SURVIVED" pulsing!
-This rewrite has lower noise (0.005) for a "survived" result, full simulation logic, and matches your UI. If you want a noise slider or more tweaks, let me know! 🚀
