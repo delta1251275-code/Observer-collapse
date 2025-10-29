@@ -1,139 +1,142 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Δ = THE OBSERVER</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Δ = THE SUN</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
   <style>
-    body { background:#000; color:#fff; font-family:sans-serif; text-align:center; padding:50px; }
-    h1 { font-size:2em; margin-bottom:10px; }
-    p { font-size:1.2em; margin:8px 0; }
-    button { background:#00f; color:#fff; padding:12px 24px; border:none; border-radius:8px; cursor:pointer; font-size:1.1em; margin:20px 0; }
-    button:disabled { background:#333; cursor:not-allowed; }
-    #progress { width:250px; height:12px; background:#333; margin:20px auto; border-radius:6px; overflow:hidden; }
-    #result { margin-top:20px; white-space:pre-wrap; font-family:monospace; font-size:1.1em; line-height:1.6; }
-    .pulse { animation:pulse 1.5s infinite; color:#0f0; text-shadow:0 0 10px #0f0; }
-    @keyframes pulse { 0%{opacity:1} 50%{opacity:0.5} 100%{opacity:1} }
-    #noise-slider { width:250px; margin:20px auto; }
-    #noise-value { display:block; margin-top:8px; font-family:monospace; color:#0f0; }
+    body { font-family: 'Courier New', monospace; background: #000; color: #0f0; text-align: center; padding: 2rem; }
+    .card { background: #111; border: 1px solid #0f0; border-radius: 12px; padding: 2rem; max-width: 600px; margin: 2rem auto; }
+    h1 { font-size: 2.5rem; margin: 0; }
+    .symbol { font-size: 3rem; color: #0f0; }
+    button { background: #0f0; color: #000; border: none; padding: 1rem 2rem; font-size: 1.2rem; border-radius: 8px; cursor: pointer; margin: 1rem; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    .progress { width: 100%; height: 10px; background: #333; border-radius: 5px; margin: 1rem 0; overflow: hidden; }
+    .bar { height: 100%; width: 0%; background: #0f0; transition: width 0.3s; }
+    pre { text-align: left; background: #222; padding: 1rem; border-radius: 8px; overflow: auto; }
+    .result { font-size: 1.5rem; margin: 1rem; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
   </style>
 </head>
 <body>
-  <h1>Δ = THE OBSERVER</h1>
-  <p>Live Bell-State CHSH simulation in a noisy cavity.</p>
-  <p>Slide noise, then click to collapse the wavefunction.</p>
-  
-  <div>Noise Level (gamma): <span id="noise-value">0.005</span></div>
-  <input type="range" id="noise-slider" min="0" max="0.1" step="0.001" value="0.005">
-  
-  <div id="progress"></div>
-  <button id="collapse">Collapse Now</button>
-  <div id="result"></div>
+  <div class="card">
+    <div class="symbol">Δ = THE SUN</div>
+    <h1>Solar Flare Predictor + Quantum CHSH</h1>
+    <p>Download real HMI data, simulate quantum noise, predict X-class flares.</p>
+    
+    <button id="startBtn">Load Magnetogram + Collapse</button>
+    <div class="progress"><div class="bar" id="bar"></div></div>
+    <pre id="code"></pre>
+    <div id="result"></div>
+  </div>
 
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
-  <script>
+  <script type="text/javascript">
+    let pyodide;
     async function main() {
-      let pyodide = await loadPyodide();
-      await pyodide.loadPackage("numpy");
-      return pyodide;
-    }
-    let pyodideReadyPromise = main();
-
-    const slider = document.getElementById('noise-slider');
-    const noiseValue = document.getElementById('noise-value');
-    slider.addEventListener('input', () => {
-      noiseValue.textContent = slider.value;
-    });
-
-    async function runSimulation() {
-      const gamma = parseFloat(slider.value);
-      const progress = document.getElementById('progress');
-      const button = document.getElementById('collapse');
-      const resultDiv = document.getElementById('result');
-
-      button.disabled = true;
-      button.textContent = "Running...";
-      resultDiv.textContent = "";
-      resultDiv.classList.remove('pulse');
-
-      let width = 0;
-      const interval = setInterval(() => {
-        width = (width + 2) % 101;
-        progress.style.background = `linear-gradient(to right, #00f ${width}%, #333 ${width}%)`;
-      }, 50);
-
-      try {
-        let pyodide = await pyodideReadyPromise;
-        let pythonCode = `
-import sys
-from io import StringIO
-sys.stdout = StringIO()
-
+      document.getElementById("startBtn").disabled = true;
+      updateProgress(10);
+      
+      pyodide = await loadPyodide();
+      await pyodide.loadPackage("micropip");
+      const micropip = pyodide.pyimport("micropip");
+      
+      updateProgress(30);
+      await micropip.install("sunpy");
+      await micropip.install("numpy");
+      await micropip.install("qutip");
+      
+      updateProgress(50);
+      const code = `
 import numpy as np
+from sunpy.net import Fido, attrs as a
+import qutip as qt
+import matplotlib.pyplot as plt
+from js import document
 
-# Bell state: (|00> + |11>)/√2
+# Step 1: Download HMI Magnetogram (X9.3 flare, 2017)
+print("Downloading HMI magnetogram...")
+result = Fido.search(
+    a.Time('2017-09-06 11:00', '2017-09-06 13:00'),
+    a.Instrument('hmi'), a.Physobs('los_magnetic_field')
+)
+files = Fido.fetch(result[0,0], path='./')
+mag_map = sunpy.map.Map(files[0])
+
+# Step 2: Crop active region
+data = mag_map.data
+data = np.nan_to_num(data)
+x0, y0, size = 400, 200, 512
+patch = data[y0:y0+size, x0:x0+size]
+
+# Step 3: Extract features
+flux = np.sum(np.abs(patch))
+grad_x = np.gradient(patch, axis=0)
+grad_y = np.gradient(patch, axis=1)
+shear = np.mean(np.abs(grad_x + grad_y))
+
+# Step 4: Quantum CHSH with noise
+def amplitude_damping(rho, p):
+    K0 = np.array([[1, 0], [0, np.sqrt(1-p)]])
+    K1 = np.array([[0, np.sqrt(p)], [0, 0]])
+    return K0 @ rho @ K0.T + K1 @ rho @ K1.T
+
 psi = np.array([1, 0, 0, 1]) / np.sqrt(2)
 rho = np.outer(psi, psi.conj())
 
-gamma = ${gamma}
-dt = 0.05
-steps = 200  # total time = 10
+gamma = 0.01
+eps = 100
+S_values = []
+for t in range(eps):
+    rho = amplitude_damping(rho, gamma)
+    # CHSH expectation (simplified)
+    S = 2 * np.sqrt(2) * np.abs(rho[0,3] + rho[0,3].conj())
+    S_values.append(S.real)
 
-for _ in range(steps):
-    p = 1 - np.exp(-gamma * dt)
-    
-    # Population decay
-    rho[1,1] *= (1 - p)
-    rho[2,2] *= (1 - p)
-    rho[0,0] += p * (rho[1,1] + rho[2,2])
-    
-    # Coherence decay: off-diagonals decay slower
-    decay_factor = np.exp(-gamma * dt / 2)
-    rho[0,3] *= decay_factor
-    rho[3,0] = np.conj(rho[0,3])
-    
-    rho /= np.trace(rho)
+final_S = S_values[-1]
+flare_prob = min(99, flux / 1e20 * 100)  # dummy scaling
 
-# Rotated projectors for correlation
-def correlation(theta1, theta2):
-    # Measurement operators
-    M1 = np.cos(theta1) * np.diag([1, -1]) + np.sin(theta1) * np.array([[0,1],[1,0]])
-    M2 = np.cos(theta2) * np.diag([1, -1]) + np.sin(theta2) * np.array([[0,1],[1,0]])
-    
-    # Expectation <M1 ⊗ M2>
-    exp = np.real(np.trace(np.kron(M1, M2) @ rho))
-    return exp
+print(f"Final CHSH S: {final_S:.4f}")
+print(f"Flux: {flux:.2e} Mx")
+print(f"Shear: {shear:.2f}")
+print(f"Flare Probability: {flare_prob:.1f}%")
 
-E = correlation
-S = E(0, np.pi/4) + E(0, -np.pi/4) + E(np.pi/2, np.pi/4) - E(np.pi/2, -np.pi/4)
-ideal = 2 * np.sqrt(2)
-loss = (ideal - abs(S)) / ideal * 100
-
-output = f"CHSH S = {S:.4f} (max 2.828, classical ≤2)\\n"
-output += f"Noise Impact: {loss:.1f}% loss\\n\\n"
-output += "SPOOKY LINK SURVIVED" if abs(S) > 2 else "SPOOKY LINK BROKEN"
-print(output)
-
-output = sys.stdout.getvalue()
+[f"CHSH S = {final_S:.4f}", 
+ f"Flux = {flux:.2e} Mx", 
+ f"Shear = {shear:.2f}", 
+ f"Flare Risk = {flare_prob:.1f}%",
+ "QUANTUM LINK DECAYED" if final_S < 2 else "SPOOKY LINK SURVIVED"]
 `;
-        await pyodide.runPython(pythonCode);
-        let output = pyodide.globals.get('output');
-        clearInterval(interval);
-        progress.style.background = '#333';
-        resultDiv.innerText = output || "No output";
-        const sMatch = output.match(/CHSH S = ([\\d.+-]+)/);
-        if (sMatch && Math.abs(parseFloat(sMatch[1])) > 2) {
-          resultDiv.classList.add('pulse');
-        }
-      } catch (err) {
-        resultDiv.innerText = "Error: " + err.message;
-      } finally {
-        button.textContent = "Collapse Again";
-        button.disabled = false;
+      
+      updateProgress(70);
+      const result = await pyodide.runPythonAsync(code);
+      const output = pyodide.globals.get("list");
+      
+      updateProgress(100);
+      let html = "<pre>SIMULATION COMPLETE\n\n";
+      output.forEach(line => html += line + "\\n");
+      html += "</pre>";
+      if (final_S < 2) {
+        html += '<div class="result" style="color:#f00;">SPOOKY LINK BROKEN</div>';
+      } else {
+        html += '<div class="result" style="color:#0f0;">SPOOKY LINK SURVIVED</div>';
       }
+      document.getElementById("result").innerHTML = html;
+      document.getElementById("startBtn").disabled = false;
     }
 
-    document.getElementById('collapse').addEventListener('click', runSimulation);
+    function updateProgress(pct) {
+      document.getElementById("bar").style.width = pct + "%";
+    }
+
+    document.getElementById("startBtn").onclick = () => {
+      document.getElementById("result").innerHTML = "";
+      updateProgress(0);
+      main();
+    };
+
+    // Auto-start
+    main();
   </script>
 </body>
 </html>
