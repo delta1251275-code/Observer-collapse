@@ -71,11 +71,10 @@ sys.stdout = StringIO()
 
 import numpy as np
 
-# Singlet Bell state for max CHSH: (|01> - |10>)/√2
-psi = np.array([0, 1, -1, 0]) / np.sqrt(2)
+# Bell state: (|00> + |11>)/√2
+psi = np.array([1, 0, 0, 1]) / np.sqrt(2)
 rho = np.outer(psi, psi.conj())
 
-# Amplitude damping for both qubits
 gamma = ${gamma}
 dt = 0.05
 steps = 200  # total time = 10
@@ -86,40 +85,25 @@ for _ in range(steps):
     # Population decay
     rho[1,1] *= (1 - p)
     rho[2,2] *= (1 - p)
-    rho[0,0] += p * rho[1,1]
-    rho[3,3] += p * rho[2,2]
+    rho[0,0] += p * (rho[1,1] + rho[2,2])
     
-    # Coherence decay
-    rho[0,3] *= np.sqrt((1 - p)**2)
-    rho[1,2] *= np.sqrt((1 - p)**2)
-    rho[2,1] = np.conj(rho[1,2])
+    # Coherence decay: off-diagonals decay slower
+    decay_factor = np.exp(-gamma * dt / 2)
+    rho[0,3] *= decay_factor
     rho[3,0] = np.conj(rho[0,3])
     
     rho /= np.trace(rho)
 
 # Rotated projectors for correlation
 def correlation(theta1, theta2):
-    # Rotation matrix for measurement
-    R1 = np.array([[np.cos(theta1), -np.sin(theta1)], [np.sin(theta1), np.cos(theta1)]])
-    R2 = np.array([[np.cos(theta2), -np.sin(theta2)], [np.sin(theta2), np.cos(theta2)]])
+    # Measurement operators
+    M1 = np.cos(theta1) * np.diag([1, -1]) + np.sin(theta1) * np.array([[0,1],[1,0]])
+    M2 = np.cos(theta2) * np.diag([1, -1]) + np.sin(theta2) * np.array([[0,1],[1,0]])
     
-    # Probabilities for ++, +-, -+, --
-    p_pp = 0.5 * (1 - np.sin(theta1 - theta2))
-    p_pm = 0.5 * (1 + np.sin(theta1 - theta2))
-    p_mp = p_pm
-    p_mm = p_pp
-    probs = [p_pp, p_pm, p_mp, p_mm]
-    probs /= sum(probs)
-    
-    outcomes = np.random.choice(4, size=1250, p=probs)
-    corr = 0
-    for o in outcomes:
-        A = 1 if o in [0,1] else -1
-        B = 1 if o in [0,2] else -1
-        corr += A * B
-    return corr / 1250
+    # Expectation <M1 ⊗ M2>
+    exp = np.real(np.trace(np.kron(M1, M2) @ rho))
+    return exp
 
-# CHSH
 E = correlation
 S = E(0, np.pi/4) + E(0, -np.pi/4) + E(np.pi/2, np.pi/4) - E(np.pi/2, -np.pi/4)
 ideal = 2 * np.sqrt(2)
