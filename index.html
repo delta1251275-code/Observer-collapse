@@ -71,43 +71,71 @@ sys.stdout = StringIO()
 
 import numpy as np
 
-def bell_state():
-    return np.array([1, 0, 0, 1]) / np.sqrt(2)  # |00> + |11>
+# Bell state |Φ+> = (|00> + |11>)/√2
+psi = np.array([1, 0, 0, 1]) / np.sqrt(2)
+rho = np.outer(psi, psi.conj())
 
-def apply_decay(rho, gamma, dt):
-    p_decay = 1 - np.exp(-gamma * dt)
-    rho[1,1] *= (1 - p_decay)
-    rho[2,2] *= (1 - p_decay)
-    rho[0,0] += p_decay * (rho[1,1] + rho[2,2])
-    rho[0,3] *= np.exp(-gamma * dt / 2)  # coherence decay
-    rho[3,0] = rho[0,3]
-    rho /= rho.trace()
-    return rho
+# Amplitude damping for both qubits
+gamma = ${gamma}
+dt = 0.05
+steps = 200  # total time = 10
+
+for _ in range(steps):
+    # Decay rate
+    p = 1 - np.exp(-gamma * dt)
+    
+    # Population transfer: |1> → |0>
+    rho[1,1] *= (1 - p)
+    rho[3,3] *= (1 - p)
+    rho[0,0] += p * rho[1,1]
+    rho[2,2] += p * rho[3,3]
+    
+    # Coherence decay for |00><11> and |11><00>
+    rho[0,3] *= np.sqrt((1 - p)**2)
+    rho[3,0] = np.conj(rho[0,3])
+    
+    # Normalize
+    rho /= np.trace(rho)
+
+# Rotated measurement projectors for CHSH
+def projector(theta):
+    c, s = np.cos(theta), np.sin(theta)
+    P_plus = np.array([[c**2, c*s], [s*c, s**2]])
+    P_minus = np.array([[s**2, -s*c], [-c*s, c**2]])
+    return P_plus, P_minus
 
 def measure_correlation(rho, theta1, theta2, trials=1250):
-    probs = np.zeros(4)
-    for i in range(2):
-        for j in range(2):
-            p = rho[i::2, j::2].sum()
-            probs[i*2 + j] = p.real
-    probs /= probs.sum()
-    outcomes = np.random.choice(4, size=trials, p=probs)
+    P1p, P1m = projector(theta1)
+    P2p, P2m = projector(theta2)
+    
+    # Tensor products for 4 outcomes
+    P_pp = np.kron(P1p, P2p)
+    P_pm = np.kron(P1p, P2m)
+    P_mp = np.kron(P1m, P2p)
+    P_mm = np.kron(P1m, P2m)
+    
+    # Probabilities
+    p_pp = np.trace(P_pp @ rho @ P_pp.T)
+    p_pm = np.trace(P_pm @ rho @ P_pm.T)
+    p_mp = np.trace(P_mp @ rho @ P_mp.T)
+    p_mm = np.trace(P_mm @ rho @ P_mm.T)
+    
+    total = p_pp + p_pm + p_mp + p_mm
+    if total > 0:
+        p_pp /= total
+        p_pm /= total
+        p_mp /= total
+        p_mm /= total
+    
+    outcomes = np.random.choice(4, size=trials, p=[p_pp, p_pm, p_mp, p_mm])
     corr = 0
-    for k in range(trials):
-        o = outcomes[k]
+    for o in outcomes:
         A = 1 if o in [0,1] else -1
         B = 1 if o in [0,2] else -1
         corr += A * B
     return corr / trials
 
-# Initial state
-rho = np.outer(bell_state(), bell_state())
-dt = 0.1
-steps = 100
-for _ in range(steps):
-    rho = apply_decay(rho, ${gamma}, dt)
-
-# CHSH
+# CHSH angles
 E = lambda a,b: measure_correlation(rho, a, b)
 S = E(0, np.pi/4) + E(0, -np.pi/4) + E(np.pi/2, np.pi/4) - E(np.pi/2, -np.pi/4)
 ideal = 2 * np.sqrt(2)
