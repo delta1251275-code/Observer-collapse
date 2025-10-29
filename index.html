@@ -142,41 +142,63 @@ print(out)
       }
     });
 
-    // === 4. ROBUST SOLAR FLARE PREDICTION ===
+    // === 4. DUAL-ENDPOINT SOLAR FLARE PREDICTION ===
     let fluxData = [];
     async function fetchSolarData() {
       flareDiv.textContent = "Fetching solar data...";
       flareDiv.style.color = "#ff0";
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const endpoints = [
+        'https://services.swpc.noaa.gov/json/goes/primary/xrays-1-minute.json',
+        'https://services.swpc.noaa.gov/json/goes/xrays-primary-1-minute.json'
+      ];
 
-      try {
-        const resp = await fetch(
-          'https://services.swpc.noaa.gov/json/goes/primary/xrays-1-minute.json',
-          { signal: controller.signal, cache: "no-store" }
-        );
-        clearTimeout(timeout);
+      for (let url of endpoints) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
 
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        try {
+          const resp = await fetch(url, { signal: controller.signal, cache: "no-store" });
+          clearTimeout(timeout);
 
-        const data = await resp.json();
-        const now = Date.now();
-        const recent = data
-          .map(p => ({ t: new Date(p.time_tag).getTime(), f: parseFloat(p.flux) || 0 }))
-          .filter(p => p.f > 0 && (now - p.t) <= 30*60*1000);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-        if (recent.length === 0) throw new Error("No recent data");
+          const data = await resp.json();
+          const now = Date.now();
+          const recent = data
+            .map(p => ({ t: new Date(p.time_tag).getTime(), f: parseFloat(p.flux) || 0 }))
+            .filter(p => p.f > 0 && (now - p.t) <= 30*60*1000);
 
-        fluxData = recent.sort((a,b) => a.t - b.t);
-        drawChart();
-        predictFlare();
-      } catch (e) {
-        flareDiv.textContent = "Solar data unavailable — retrying in 15s";
-        flareDiv.style.color = "#f55";
-        setTimeout(fetchSolarData, 15000);
+          if (recent.length === 0) throw new Error("No recent data");
+
+          fluxData = recent.sort((a,b) => a.t - b.t);
+          drawChart();
+          predictFlare();
+          return;
+        } catch (e) {
+          console.warn(`Failed ${url}:`, e);
+        }
       }
+
+      // All failed
+      flareDiv.textContent = "Solar data unavailable — NOAA outage, retrying in 15s";
+      flareDiv.style.color = "#f55";
+      setTimeout(fetchSolarData, 15000);
     }
+
+    // === MOCK DATA (uncomment to test during NOAA outage) ===
+    /*
+    async function fetchSolarData() {
+      flareDiv.textContent = "Using mock data (NOAA down)";
+      flareDiv.style.color = "#0f0";
+      fluxData = Array.from({length: 30}, (_, i) => ({
+        t: Date.now() - (30-i)*60*1000,
+        f: 1e-7 + Math.random() * 5e-8
+      }));
+      drawChart();
+      predictFlare();
+    }
+    */
 
     function drawChart() {
       ctx.clearRect(0,0,400,120);
