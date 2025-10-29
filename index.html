@@ -41,21 +41,15 @@
 
   <div id="result"></div>
 
-  <!-- LOCAL PYODIDE -->
   <script>
-    const script = document.createElement('script');
-    script.src = './pyodide/pyodide.js';
-    script.onload = () => {
-      languagePluginURL = './pyodide/';
-    };
-    document.head.appendChild(script);
+    window.languagePluginURL = './pyodide/';
   </script>
+  <script src="./pyodide/pyodide.js"></script>
   <script>
     let pyodideReady = false;
     async function loadPyodideAndPackages() {
       const status = document.getElementById('py-status');
       status.textContent = 'Loading quantum engine (local Pyodide)...';
-
       try {
         const pyodide = await loadPyodide();
         await pyodide.loadPackage("numpy");
@@ -67,12 +61,10 @@
       } catch (e) {
         status.textContent = 'Pyodide failed: ' + e.message;
         status.style.color = '#f55';
-        throw e;
       }
     }
     const pyodidePromise = loadPyodideAndPackages();
 
-    // === REST OF CODE (unchanged) ===
     const slider = document.getElementById('noise-slider');
     const noiseValue = document.getElementById('noise-value');
     const collapseBtn = document.getElementById('collapse');
@@ -86,10 +78,7 @@
     slider.addEventListener('input', () => noiseValue.textContent = slider.value);
 
     collapseBtn.addEventListener('click', async () => {
-      if (!pyodideReady) {
-        resultDiv.textContent = "Please wait — quantum engine still loading...";
-        return;
-      }
+      if (!pyodideReady) return;
       const gamma = parseFloat(slider.value);
       collapseBtn.disabled = true;
       collapseBtn.textContent = "Running...";
@@ -151,12 +140,10 @@ print(out)
     async function fetchSolarData() {
       flareDiv.textContent = "Fetching solar data...";
       flareDiv.style.color = "#ff0";
-
       const endpoints = [
         'https://services.swpc.noaa.gov/json/goes/primary/xrays-1-minute.json',
         'https://services.swpc.noaa.gov/json/goes/xrays-primary-1-minute.json'
       ];
-
       for (let url of endpoints) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
@@ -174,9 +161,7 @@ print(out)
           drawChart();
           predictFlare();
           return;
-        } catch (e) {
-          console.warn(`Failed ${url}:`, e);
-        }
+        } catch (e) { console.warn(`Failed ${url}:`, e); }
       }
       flareDiv.textContent = "Solar data unavailable — retrying in 15s";
       flareDiv.style.color = "#f55";
