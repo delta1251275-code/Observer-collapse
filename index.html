@@ -71,58 +71,61 @@ sys.stdout = StringIO()
 
 import numpy as np
 
-# Bell state: (|00> + |11>)/√2
-psi = np.array([1, 0, 0, 1]) / np.sqrt(2)
-rho = np.outer(psi, psi)
+# Bell state
+psi = np.array([1, 0, 0, 1], dtype=complex) / np.sqrt(2)
+rho = np.outer(psi, psi.conj())
 
-# Lindblad amplitude damping on both qubits
-gamma = ${gamma}
+# Amplitude damping (Lindblad)
+gamma_val = ${gamma}
 dt = 0.05
-steps = 200  # total time = 10
+steps = 200
 
 for _ in range(steps):
+    p = 1 - np.exp(-gamma_val * dt)
     # Population decay
-    p = 1 - np.exp(-gamma * dt)
     rho[1,1] *= (1 - p)
     rho[2,2] *= (1 - p)
     rho[0,0] += p * (rho[1,1] + rho[2,2])
-    
-    # Coherence decay (off-diagonals)
-    rho[0,3] *= np.sqrt((1 - p)**2)
+    # Coherence decay
+    rho[0,3] *= (1 - p)
     rho[3,0] = np.conj(rho[0,3])
-    
     # Renormalize
     rho /= np.trace(rho)
 
-# Projective measurement in basis rotated by theta
-def measure(theta1, theta2, trials=1250):
-    c1, s1 = np.cos(theta1), np.sin(theta1)
-    c2, s2 = np.cos(theta2), np.sin(theta2)
+# Measure correlation in rotated basis
+def correlation(theta_a, theta_b, trials=1250):
+    ca, sa = np.cos(theta_a), np.sin(theta_a)
+    cb, sb = np.cos(theta_b), np.sin(theta_b)
     
-    # Projectors: |+> = cos|0> + sin|1>, |-> = -sin|0> + cos|1>
-    P11 = np.array([[c1*c2, c1*s2, s1*c2, s1*s2]])
-    P10 = np.array([[c1*(-s2), c1*c2, s1*(-s2), s1*c2]])
-    P01 = np.array([[-s1*c2, -s1*s2, c1*c2, c1*s2]])
-    P00 = np.array([[-s1*(-s2), -s1*c2, c1*(-s2), c1*c2]])
+    # Basis vectors: |+> = cos|0> + sin|1>, |-> = -sin|0> + cos|1>
+    plus_a = np.array([ca, sa])
+    minus_a = np.array([-sa, ca])
+    plus_b = np.array([cb, sb])
+    minus_b = np.array([-sb, cb])
     
-    probs = [
-        np.abs(np.dot(P11, rho @ P11.T))[0,0],
-        np.abs(np.dot(P10, rho @ P10.T))[0,0],
-        np.abs(np.dot(P01, rho @ P01.T))[0,0],
-        np.abs(np.dot(P00, rho @ P00.T))[0,0]
-    ]
-    probs = np.real(probs)
+    # Projectors for 4 outcomes
+    P00 = np.kron(plus_a, plus_b)
+    P01 = np.kron(plus_a, minus_b)
+    P10 = np.kron(minus_a, plus_b)
+    P11 = np.kron(minus_a, minus_b)
+    
+    projectors = [P00, P01, P10, P11]
+    probs = []
+    for P in projectors:
+        prob = np.real(P.conj().T @ rho @ P)
+        probs.append(prob)
+    probs = np.array(probs)
     probs /= probs.sum()
     
     outcomes = np.random.choice(4, size=trials, p=probs)
     corr = 0
     for o in outcomes:
-        A = 1 if o in [0,1] else -1
-        B = 1 if o in [0,2] else -1
+        A = 1 if o in [0,1] else -1   # ++, +- → +1
+        B = 1 if o in [0,2] else -1   # ++, -+ → +1
         corr += A * B
     return corr / trials
 
-E = lambda a,b: measure(a, b)
+E = lambda a,b: correlation(a, b)
 S = E(0, np.pi/4) + E(0, -np.pi/4) + E(np.pi/2, np.pi/4) - E(np.pi/2, -np.pi/4)
 ideal = 2 * np.sqrt(2)
 loss = (ideal - abs(S)) / ideal * 100
@@ -139,7 +142,7 @@ output = sys.stdout.getvalue()
         clearInterval(interval);
         progress.style.background = '#333';
         resultDiv.innerText = output || "No output";
-        const sMatch = output.match(/CHSH S = ([\\d.+-]+)/);
+        const sMatch = output.match(/CHSH S = ([\\d.-]+)/);
         if (sMatch && parseFloat(sMatch[1]) > 2) {
           resultDiv.classList.add('pulse');
         }
