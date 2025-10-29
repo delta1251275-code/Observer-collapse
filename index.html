@@ -1,64 +1,73 @@
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
 <script>
-  /* -------------------------------------------------
-     1. GLOBAL UI ELEMENTS (declare BEFORE any code)
-     ------------------------------------------------- */
-  const slider       = document.getElementById('noise-slider');
-  const noiseVal     = document.getElementById('noise-value');
-  const collapseBtn  = document.getElementById('collapse');
-  const predictBtn   = document.getElementById('predict-flare');
-  const resultDiv    = document.getElementById('result');
-  const flareDiv     = document.getElementById('flare-status');
-  const canvas       = document.getElementById('flux-chart');
-  const ctx          = canvas.getContext('2d');
-  const prog         = document.getElementById('progress');
-  const pyLoading    = document.getElementById('pyodide-loading');
+  // Wait for DOM to be fully loaded
+  document.addEventListener('DOMContentLoaded', async () => {
+    /* -------------------------------------------------
+       1. DOM ELEMENTS (now guaranteed to exist)
+       ------------------------------------------------- */
+    const slider       = document.getElementById('noise-slider');
+    const noiseVal     = document.getElementById('noise-value');
+    const collapseBtn  = document.getElementById('collapse');
+    const predictBtn   = document.getElementById('predict-flare');
+    const resultDiv    = document.getElementById('result');
+    const flareDiv     = document.getElementById('flare-status');
+    const canvas       = document.getElementById('flux-chart');
+    const ctx          = canvas.getContext('2d');
+    const prog         = document.getElementById('progress');
+    const pyLoading    = document.getElementById('pyodide-loading');
 
-  /* -------------------------------------------------
-     2. PYODIDE INITIALISATION (with UI feedback)
-     ------------------------------------------------- */
-  let pyodide = null;
-  async function initPyodide() {
-    pyLoading.style.display = 'block';
-    pyodide = await loadPyodide();
-    await pyodide.loadPackage("numpy");
-    pyLoading.style.display = 'none';
-    // Enable buttons only after Pyodide is ready
-    collapseBtn.disabled = false;
-    predictBtn.disabled  = false;
-  }
-  // Start loading immediately
-  initPyodide().catch(e => {
-    pyLoading.textContent = "Pyodide failed: " + e.message;
-    pyLoading.style.color = "#f55";
-  });
+    if (!slider || !collapseBtn || !canvas) {
+      document.body.innerHTML = "<h3 style='color:red;text-align:center;margin:50px;'>DOM load failed. Check element IDs.</h3>";
+      return;
+    }
 
-  /* -------------------------------------------------
-     3. UI HELPERS
-     ------------------------------------------------- */
-  slider.addEventListener('input', () => noiseVal.textContent = slider.value);
-  collapseBtn.disabled = true;
-  predictBtn.disabled  = true;
+    /* -------------------------------------------------
+       2. PYODIDE INIT (with visual feedback)
+       ------------------------------------------------- */
+    let pyodide = null;
+    async function initPyodide() {
+      pyLoading.style.display = 'block';
+      try {
+        pyodide = await loadPyodide();
+        await pyodide.loadPackage("numpy");
+        pyLoading.style.display = 'none';
+        collapseBtn.disabled = false;
+        predictBtn.disabled = false;
+      } catch (e) {
+        pyLoading.textContent = "Pyodide failed: " + e.message;
+        pyLoading.style.color = "#f55";
+      }
+    }
 
-  /* -------------------------------------------------
-     4. CHSH SIMULATION
-     ------------------------------------------------- */
-  collapseBtn.addEventListener('click', async () => {
-    if (!pyodide) return;               // safety
+    // Start Pyodide load
+    initPyodide();
+
+    /* -------------------------------------------------
+       3. UI SETUP
+       ------------------------------------------------- */
+    slider.addEventListener('input', () => noiseVal.textContent = slider.value);
     collapseBtn.disabled = true;
-    collapseBtn.textContent = "Running…";
-    resultDiv.textContent = "";
-    resultDiv.classList.remove('pulse');
+    predictBtn.disabled = true;
 
-    let w = 0;
-    const iv = setInterval(() => {
-      w = (w + 2) % 101;
-      prog.style.background = `linear-gradient(to right, #00f ${w}%, #333 ${w}%)`;
-    }, 50);
+    /* -------------------------------------------------
+       4. CHSH SIMULATION
+       ------------------------------------------------- */
+    collapseBtn.addEventListener('click', async () => {
+      if (!pyodide) return;
+      collapseBtn.disabled = true;
+      collapseBtn.textContent = "Running…";
+      resultDiv.textContent = "";
+      resultDiv.classList.remove('pulse');
 
-    try {
-      const gamma = parseFloat(slider.value);
-      const code = `
+      let w = 0;
+      const iv = setInterval(() => {
+        w = (w + 2) % 101;
+        prog.style.background = `linear-gradient(to right, #00f ${w}%, #333 ${w}%)`;
+      }, 50);
+
+      try {
+        const gamma = parseFloat(slider.value);
+        const code = `
 import numpy as np
 psi = np.array([1,0,0,1],dtype=complex)/np.sqrt(2)
 rho = np.outer(psi,psi.conj())
@@ -84,122 +93,127 @@ out += f"Noise Impact: {loss:.1f}% loss\\n\\n"
 out += "SPOOKY LINK SURVIVED" if abs(S)>2 else "SPOOKY LINK BROKEN"
 print(out)
 `;
-      await pyodide.runPython(code);
-      const output = pyodide.globals.get('out');
-      clearInterval(iv);
-      prog.style.background = '#333';
-      resultDiv.innerText = output;
-      if (Math.abs(parseFloat(output.match(/CHSH S = ([-\d.]+)/)[1])) > 2) {
-        resultDiv.classList.add('pulse');
+        await pyodide.runPython(code);
+        const output = pyodide.globals.get('out');
+        clearInterval(iv);
+        prog.style.background = '#333';
+        resultDiv.innerText = output;
+        if (Math.abs(parseFloat(output.match(/CHSH S = ([-\d.]+)/)[1])) > 2) {
+          resultDiv.classList.add('pulse');
+        }
+      } catch (e) {
+        clearInterval(iv);
+        prog.style.background = '#333';
+        resultDiv.innerText = "Error: " + e.message;
+      } finally {
+        collapseBtn.textContent = "Collapse Again";
+        collapseBtn.disabled = false;
       }
-    } catch (e) {
-      clearInterval(iv);
-      prog.style.background = '#333';
-      resultDiv.innerText = "Error: " + e.message;
-    } finally {
-      collapseBtn.textContent = "Collapse Again";
-      collapseBtn.disabled = false;
-    }
-  });
-
-  /* -------------------------------------------------
-     5. SOLAR FLARE PREDICTION (robust)
-     ------------------------------------------------- */
-  let fluxHistory = [];
-
-  async function fetchGOES() {
-    const url = 'https://services.swpc.noaa.gov/json/goes/primary/xrays-1-minute.json';
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const resp = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      const now = Date.now();
-      const thirtyMin = 30*60*1000;
-      const recent = data
-        .map(p => {
-          const t = new Date(p.time_tag).getTime();
-          return isNaN(t) ? null : { t, f: parseFloat(p.flux) || 0 };
-        })
-        .filter(p => p && p.f > 0 && (now - p.t) <= thirtyMin);
-      fluxHistory = recent.sort((a,b) => a.t - b.t);
-      drawFluxChart();
-      return true;
-    } catch (err) {
-      flareDiv.textContent = "GOES unavailable – retrying…";
-      flareDiv.style.color = "#ff0";
-      setTimeout(fetchGOES, 15000);
-      return false;
-    }
-  }
-
-  function drawFluxChart() {
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    if (fluxHistory.length < 2) {
-      ctx.fillStyle = '#666';
-      ctx.font = '12px monospace';
-      ctx.fillText('Awaiting data…', 150, 60);
-      return;
-    }
-    const t = fluxHistory.map(p=>p.t);
-    const f = fluxHistory.map(p=>p.f);
-    const minT = Math.min(...t), maxT = Math.max(...t);
-    const minF = Math.min(...f), maxF = Math.max(...f)||minF+1e-10;
-    const padX=40, padY=20, w=canvas.width-2*padX, h=canvas.height-2*padY;
-
-    ctx.strokeStyle='#555'; ctx.beginPath();
-    ctx.moveTo(padX,padY); ctx.lineTo(padX,canvas.height-padY);
-    ctx.moveTo(padX,canvas.height-padY); ctx.lineTo(canvas.width-padX,canvas.height-padY);
-    ctx.stroke();
-
-    ctx.strokeStyle='#0f0'; ctx.lineWidth=2; ctx.beginPath();
-    fluxHistory.forEach((p,i) => {
-      const x = padX + (p.t-minT)/(maxT-minT)*w;
-      const y = canvas.height-padY - (p.f-minF)/(maxF-minF)*h;
-      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
     });
-    ctx.stroke();
 
-    ctx.fillStyle='#aaa'; ctx.font='10px monospace';
-    ctx.fillText('Time →', canvas.width-70, canvas.height-5);
-    ctx.fillText('X-ray Flux (W/m²)', 5, 15);
-  }
+    /* -------------------------------------------------
+       5. SOLAR FLARE PREDICTION
+       ------------------------------------------------- */
+    let fluxHistory = [];
 
-  const model = {w0:-8.2, w1:1.8, w2:3.5};
-  function predictFlareProb() {
-    if (fluxHistory.length < 10) return null;
-    const mean = fluxHistory.reduce((s,p)=>s+p.f,0)/fluxHistory.length;
-    const recent = fluxHistory.slice(-5);
-    const dt = (recent[recent.length-1].t - recent[0].t)/1000;
-    if (dt===0) return null;
-    const slope = (recent[recent.length-1].f - recent[0].f)/dt;
-    const z = model.w0 + model.w1*mean + model.w2*slope;
-    return 1/(1+Math.exp(-z));
-  }
+    async function fetchGOES() {
+      const url = 'https://services.swpc.noaa.gov/json/goes/primary/xrays-1-minute.json';
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const now = Date.now();
+        const thirtyMin = 30*60*1000;
+        const recent = data
+          .map(p => {
+            const t = new Date(p.time_tag).getTime();
+            return isNaN(t) ? null : { t, f: parseFloat(p.flux) || 0 };
+          })
+          .filter(p => p && p.f > 0 && (now - p.t) <= thirtyMin);
+        fluxHistory = recent.sort((a,b) => a.t - b.t);
+        drawFluxChart();
+        return true;
+      } catch (err) {
+        flareDiv.textContent = "GOES unavailable – retrying…";
+        flareDiv.style.color = "#ff0";
+        setTimeout(fetchGOES, 15000);
+        return false;
+      }
+    }
 
-  predictBtn.addEventListener('click', async () => {
-    if (predictBtn.disabled) return;
-    predictBtn.disabled = true;
-    predictBtn.textContent = "Fetching…";
-    flareDiv.textContent = "";
-    collapseBtn.classList.remove('pulse-red');
+    function drawFluxChart() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      if (fluxHistory.length < 2) {
+        ctx.fillStyle = '#666';
+        ctx.font = '12px monospace';
+        ctx.fillText('Awaiting data…', 150, 60);
+        return;
+      }
+      const t = fluxHistory.map(p=>p.t);
+      const f = fluxHistory.map(p=>p.f);
+      const minT = Math.min(...t), maxT = Math.max(...t);
+      const minF = Math.min(...f), maxF = Math.max(...f)||minF+1e-10;
+      const padX=40, padY=20, w=canvas.width-2*padX, h=canvas.height-2*padY;
 
-    const ok = await fetchGOES();
-    if (!ok) { predictBtn.disabled = false; predictBtn.textContent = "Predict Flare"; return; }
+      ctx.strokeStyle='#555'; ctx.beginPath();
+      ctx.moveTo(padX,padY); ctx.lineTo(padX,canvas.height-padY);
+      ctx.moveTo(padX,canvas.height-padY); ctx.lineTo(canvas.width-padX,canvas.height-padY);
+      ctx.stroke();
 
-    const prob = predictFlareProb();
-    const pct = prob!==null ? (prob*100).toFixed(1) : "—";
-    flareDiv.textContent = `Flare prob (next ~30 min): ${pct}%`;
-    flareDiv.style.color = prob>0.6 ? '#f55' : '#ff0';
-    if (prob>0.6) collapseBtn.classList.add('pulse-red');
+      ctx.strokeStyle='#0f0'; ctx.lineWidth=2; ctx.beginPath();
+      fluxHistory.forEach((p,i) => {
+        const x = padX + (p.t-minT)/(maxT-minT)*w;
+        const y = canvas.height-padY - (p.f-minF)/(maxF-minF)*h;
+        i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      });
+      ctx.stroke();
 
-    predictBtn.textContent = "Predict Flare";
-    predictBtn.disabled = false;
+      ctx.fillStyle='#aaa'; ctx.font='10px monospace';
+      ctx.fillText('Time →', canvas.width-70, canvas.height-5);
+      ctx.fillText('X-ray Flux (W/m²)', 5, 15);
+    }
+
+    const model = {w0:-8.2, w1:1.8, w2:3.5};
+    function predictFlareProb() {
+      if (fluxHistory.length < 10) return null;
+      const mean = fluxHistory.reduce((s,p)=>s+p.f,0)/fluxHistory.length;
+      const recent = fluxHistory.slice(-5);
+      const dt = (recent[recent.length-1].t - recent[0].t)/1000;
+      if (dt===0) return null;
+      const slope = (recent[recent.length-1].f - recent[0].f)/dt;
+      const z = model.w0 + model.w1*mean + model.w2*slope;
+      return 1/(1+Math.exp(-z));
+    }
+
+    predictBtn.addEventListener('click', async () => {
+      if (predictBtn.disabled) return;
+      predictBtn.disabled = true;
+      predictBtn.textContent = "Fetching…";
+      flareDiv.textContent = "";
+      collapseBtn.classList.remove('pulse-red');
+
+      const ok = await fetchGOES();
+      if (!ok) { 
+        predictBtn.disabled = false; 
+        predictBtn.textContent = "Predict Flare"; 
+        return; 
+      }
+
+      const prob = predictFlareProb();
+      const pct = prob!==null ? (prob*100).toFixed(1) : "—";
+      flareDiv.textContent = `Flare prob (next ~30 min): ${pct}%`;
+      flareDiv.style.color = prob>0.6 ? '#f55' : '#ff0';
+      if (prob>0.6) collapseBtn.classList.add('pulse-red');
+
+      predictBtn.textContent = "Predict Flare";
+      predictBtn.disabled = false;
+    });
+
+    // Auto-refresh
+    setInterval(() => { if (!predictBtn.disabled) fetchGOES(); }, 120000);
+    setTimeout(fetchGOES, 1000);
   });
-
-  // Auto-refresh every 2 min
-  setInterval(() => { if (!predictBtn.disabled) fetchGOES(); }, 120000);
-  setTimeout(fetchGOES, 1000);
 </script>
