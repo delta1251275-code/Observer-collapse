@@ -35,36 +35,35 @@
   <button id="collapse" disabled>Collapse Now</button>
   <button id="predict-flare">Predict Flare</button>
 
-  <div id="py-status">Loading quantum engine (CDN proxy)...</div>
+  <div id="py-status">Loading quantum engine (local Pyodide)...</div>
   <div id="flare-status">Fetching solar data...</div>
   <canvas id="flux-chart" width="400" height="120"></canvas>
 
   <div id="result"></div>
 
-  <!-- CDN PROXY PYODIDE -->
-  <script src="https://unpkg.com/pyodide@0.26.1/dist/pyodide.js"></script>
+  <script src="./pyodide/pyodide.js"></script>
   <script>
     let pyodideReady = false;
     async function loadPyodideAndPackages() {
       const status = document.getElementById('py-status');
-      status.textContent = 'Loading quantum engine...';
+      status.textContent = 'Loading quantum engine (local Pyodide)...';
 
       try {
-        const pyodide = await loadPyodide();
+        const pyodide = await loadPyodide({ indexURL: './pyodide/' });
         await pyodide.loadPackage("numpy");
         status.textContent = 'Quantum engine ready!';
         setTimeout(() => status.style.display = 'none', 2000);
         pyodideReady = true;
         document.getElementById('collapse').disabled = false;
         return pyodide;
-      } catch (err) {
-        status.textContent = 'Pyodide failed: ' + err.message;
+      } catch (e) {
+        status.textContent = 'Pyodide failed: ' + e.message;
         status.style.color = '#f55';
+        throw e;
       }
     }
     const pyodidePromise = loadPyodideAndPackages();
 
-    // === REST OF THE CODE (same as before) ===
     const slider = document.getElementById('noise-slider');
     const noiseValue = document.getElementById('noise-value');
     const collapseBtn = document.getElementById('collapse');
@@ -152,21 +151,16 @@ print(out)
       for (let url of endpoints) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
-
         try {
           const resp = await fetch(url, { signal: controller.signal, cache: "no-store" });
           clearTimeout(timeout);
-
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
           const data = await resp.json();
           const now = Date.now();
           const recent = data
             .map(p => ({ t: new Date(p.time_tag).getTime(), f: parseFloat(p.flux) || 0 }))
             .filter(p => p.f > 0 && (now - p.t) <= 30*60*1000);
-
           if (recent.length === 0) throw new Error("No recent data");
-
           fluxData = recent.sort((a,b) => a.t - b.t);
           drawChart();
           predictFlare();
@@ -175,7 +169,6 @@ print(out)
           console.warn(`Failed ${url}:`, e);
         }
       }
-
       flareDiv.textContent = "Solar data unavailable — retrying in 15s";
       flareDiv.style.color = "#f55";
       setTimeout(fetchSolarData, 15000);
@@ -192,7 +185,6 @@ print(out)
       const minT = Math.min(...t), maxT = Math.max(...t);
       const minF = Math.min(...f), maxF = Math.max(...f) || minF + 1e-10;
       const w = 320, h = 80, padX = 40, padY = 20;
-
       ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
       fluxData.forEach((p,i) => {
         const x = padX + (p.t - minT)/(maxT - minT) * w;
