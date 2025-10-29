@@ -115,8 +115,9 @@ print(output)
         let output = await pyodide.runPython(pythonCode);
         clearInterval(interval);
         progress.style.background = '#333';
-        resultDiv.innerText = output;
-        if (Math.abs(parseFloat(output.split('\\n')[0].split('=')[1])) > 2) {
+        resultDiv.innerText = output || "No output";
+        const sMatch = output && output.match(/CHSH S = ([\\d.]+)/);
+        if (sMatch && parseFloat(sMatch[1]) > 2) {
           resultDiv.classList.add('pulse');
         }
       } catch (err) {
