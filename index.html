@@ -14,30 +14,45 @@
     }
     h1 {
       font-size: 2em;
+      margin-bottom: 10px;
     }
     p {
       font-size: 1.2em;
+      margin: 8px 0;
     }
     button {
       background: #00f;
       color: #fff;
-      padding: 10px 20px;
+      padding: 12px 24px;
       border: none;
+      border-radius: 8px;
       cursor: pointer;
+      font-size: 1.1em;
+      margin: 20px 0;
+    }
+    button:disabled {
+      background: #333;
+      cursor: not-allowed;
     }
     #progress {
-      width: 200px;
-      height: 10px;
+      width: 250px;
+      height: 12px;
       background: #333;
       margin: 20px auto;
+      border-radius: 6px;
+      overflow: hidden;
     }
     #result {
       margin-top: 20px;
       white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 1.1em;
+      line-height: 1.6;
     }
     .pulse {
       animation: pulse 1.5s infinite;
       color: #0f0;
+      text-shadow: 0 0 10px #0f0;
     }
     @keyframes pulse {
       0% { opacity: 1; }
@@ -45,23 +60,28 @@
       100% { opacity: 1; }
     }
     #noise-slider {
-      width: 200px;
+      width: 250px;
       margin: 20px auto;
     }
     #noise-value {
       display: block;
-      margin-top: 10px;
+      margin-top: 8px;
+      font-family: monospace;
+      color: #0f0;
+    }
+    .label {
+      font-size: 1.1em;
+      margin: 10px 0;
     }
   </style>
 </head>
 <body>
   <h1>Δ = THE OBSERVER</h1>
   <p>Live Bell-State CHSH simulation in a noisy cavity.</p>
-  <p>Adjust noise level, then click to collapse the wavefunction.</p>
+  <p>Slide noise, then click to collapse the wavefunction.</p>
   
-  <label for="noise-slider">Noise Level (0.0 - 0.1):</label>
+  <div class="label">Noise Level (gamma): <span id="noise-value">0.005</span></div>
   <input type="range" id="noise-slider" min="0" max="0.1" step="0.001" value="0.005">
-  <span id="noise-value">0.005</span>
   
   <div id="progress"></div>
   <button id="collapse">Collapse Now</button>
@@ -77,7 +97,7 @@
     }
     let pyodideReadyPromise = main();
 
-    // Update noise value display
+    // Slider update
     const slider = document.getElementById('noise-slider');
     const noiseValue = document.getElementById('noise-value');
     slider.addEventListener('input', () => {
@@ -85,100 +105,106 @@
     });
 
     async function runSimulation() {
-      // Get current noise from slider
       const noise_level = parseFloat(slider.value);
-
-      // Simple progress bar animation (runs independently)
       const progress = document.getElementById('progress');
-      progress.style.background = 'linear-gradient(to right, #00f 0%, #333 100%)';
+      const button = document.getElementById('collapse');
+      const resultDiv = document.getElementById('result');
+
+      // Disable button
+      button.disabled = true;
+      button.textContent = "Running...";
+      resultDiv.textContent = "";
+      resultDiv.classList.remove('pulse');
+
+      // Progress bar
       let width = 0;
       const interval = setInterval(() => {
-        width = (width + 1) % 100;
+        width = (width + 2) % 101;
         progress.style.background = `linear-gradient(to right, #00f ${width}%, #333 ${width}%)`;
       }, 50);
 
-      let pyodide = await pyodideReadyPromise;
-      let pythonCode = `
+      try {
+        let pyodide = await pyodideReadyPromise;
+        let pythonCode = `
 import qutip as qt
 import numpy as np
 from numpy.random import choice
 
 def get_projectors(M):
     e, v = M.eigenstates()
-    if e[1] == 1:
-        Pplus = v[1] * v[1].dag()
-        Pminus = v[0] * v[0].dag()
-    else:
-        Pplus = v[0] * v[0].dag()
-        Pminus = v[1] * v[1].dag()
+    Pplus = v[1] * v[1].dag() if e[1] == 1 else v[0] * v[0].dag()
+    Pminus = v[0] * v[0].dag() if e[1] == 1 else v[1] * v[1].dag()
     return Pplus, Pminus
 
 def get_correlation(rho, M1, M2, trials):
-    P1plus, P1minus = get_projectors(M1)
-    P2plus, P2minus = get_projectors(M2)
-    p_pp = (qt.tensor(P1plus, P2plus) * rho).tr().real
-    p_pm = (qt.tensor(P1plus, P2minus) * rho).tr().real
-    p_mp = (qt.tensor(P1minus, P2plus) * rho).tr().real
-    p_mm = (qt.tensor(P1minus, P2minus) * rho).tr().real
+    P1p, P1m = get_projectors(M1)
+    P2p, P2m = get_projectors(M2)
+    p_pp = (qt.tensor(P1p, P2p) * rho).tr().real
+    p_pm = (qt.tensor(P1p, P2m) * rho).tr().real
+    p_mp = (qt.tensor(P1m, P2p) * rho).tr().real
+    p_mm = (qt.tensor(P1m, P2m) * rho).tr().real
     total = p_pp + p_pm + p_mp + p_mm
     if total > 0:
-        p_pp /= total
-        p_pm /= total
-        p_mp /= total
-        p_mm /= total
+        p_pp /= total; p_pm /= total; p_mp /= total; p_mm /= total
     outcomes = choice(['++', '+-', '-+', '--'], size=trials, p=[p_pp, p_pm, p_mp, p_mm])
     corr = (np.sum(outcomes == '++') + np.sum(outcomes == '--') - np.sum(outcomes == '+-') - np.sum(outcomes == '-+')) / trials
     return corr
 
 def compute_chsh(rho, num_trials=5000):
-    def get_meas_op(theta):
+    def meas_op(theta):
         return np.cos(theta) * qt.sigmaz() + np.sin(theta) * qt.sigmax()
-    theta_a = 0
-    theta_ap = np.pi/2
-    theta_b = np.pi/4
-    theta_bp = -np.pi/4
-    A = get_meas_op(theta_a)
-    Ap = get_meas_op(theta_ap)
-    B = get_meas_op(theta_b)
-    Bp = get_meas_op(theta_bp)
+    A = meas_op(0)
+    Ap = meas_op(np.pi/2)
+    B = meas_op(np.pi/4)
+    Bp = meas_op(-np.pi/4)
     trials_per = num_trials // 4
     ab = get_correlation(rho, A, B, trials_per)
     abp = get_correlation(rho, A, Bp, trials_per)
     apb = get_correlation(rho, Ap, B, trials_per)
     apbp = get_correlation(rho, Ap, Bp, trials_per)
-    s = ab + abp + apb - apbp
-    return s
+    return ab + abp + apb - apbp
 
+# Initial Bell state
 psi0 = qt.bell_state('00')
 rho0 = psi0 * psi0.dag()
 H = qt.Qobj(np.zeros((4,4)), dims=[[2,2],[2,2]])
-extra_noise = 0.0  # Adjust if needed
-noise_level = ${noise_level} + extra_noise  # Use slider value
-c_ops = [np.sqrt(noise_level) * qt.tensor(qt.sigmam(), qt.qeye(2)), np.sqrt(noise_level) * qt.tensor(qt.qeye(2), qt.sigmam())]
-tlist = np.linspace(0, 0.5, 10)  # Short time for low decoherence
+
+# Noise from slider
+gamma = ${noise_level}
+c_ops = [
+    np.sqrt(gamma) * qt.tensor(qt.sigmam(), qt.qeye(2)),
+    np.sqrt(gamma) * qt.tensor(qt.qeye(2), qt.sigmam())
+]
+
+# Longer evolution = more realistic decay
+tlist = np.linspace(0, 10, 100)
 result = qt.mesolve(H, rho0, tlist, c_ops)
 rho = result.states[-1]
+
 s = compute_chsh(rho)
 ideal = 2 * np.sqrt(2)
 loss = (ideal - abs(s)) / ideal * 100
-output = f"CHSH Value (S): {s:.4f}\\nNoise Impact: {loss:.1f}% loss"
-if abs(s) > 2:
-    output += "\\nSPOOKY LINK SURVIVED"
-else:
-    output += "\\nSPOOKY LINK BROKEN"
+
+output = f"CHSH S = {s:.4f} (max 2.828, classical ≤2)\\n"
+output += f"Noise Impact: {loss:.1f}% loss\\n\\n"
+output += "SPOOKY LINK SURVIVED" if abs(s) > 2 else "SPOOKY LINK BROKEN"
 print(output)
 `;
-      let output = await pyodide.runPython(pythonCode);
-      clearInterval(interval);
-      progress.style.background = '#333';  // Reset progress
-      const resultDiv = document.getElementById('result');
-      resultDiv.innerText = output;
-      if (Math.abs(parseFloat(output.split('\\n')[0].split(': ')[1])) > 2) {
-        resultDiv.classList.add('pulse');
-      } else {
-        resultDiv.classList.remove('pulse');
+        let output = await pyodide.runPython(pythonCode);
+        clearInterval(interval);
+        progress.style.background = '#333';
+        resultDiv.innerText = output;
+        if (Math.abs(parseFloat(output.split('\\n')[0].split('=')[1])) > 2) {
+          resultDiv.classList.add('pulse');
+        }
+      } catch (err) {
+        resultDiv.innerText = "Error: " + err.message;
+      } finally {
+        button.textContent = "Collapse Again";
+        button.disabled = false;
       }
     }
+
     document.getElementById('collapse').addEventListener('click', runSimulation);
   </script>
 </body>
