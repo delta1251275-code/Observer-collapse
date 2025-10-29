@@ -65,6 +65,10 @@
       try {
         let pyodide = await pyodideReadyPromise;
         let pythonCode = `
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+
 import numpy as np
 
 def bell_state():
@@ -111,12 +115,15 @@ output = f"CHSH S = {S:.4f} (max 2.828, classical ≤2)\\n"
 output += f"Noise Impact: {loss:.1f}% loss\\n\\n"
 output += "SPOOKY LINK SURVIVED" if abs(S) > 2 else "SPOOKY LINK BROKEN"
 print(output)
+
+output = sys.stdout.getvalue()
 `;
-        let output = await pyodide.runPython(pythonCode);
+        await pyodide.runPython(pythonCode);
+        let output = pyodide.globals.get('output');
         clearInterval(interval);
         progress.style.background = '#333';
         resultDiv.innerText = output || "No output";
-        const sMatch = output && output.match(/CHSH S = ([\\d.]+)/);
+        const sMatch = output.match(/CHSH S = ([\\d.]+)/);
         if (sMatch && parseFloat(sMatch[1]) > 2) {
           resultDiv.classList.add('pulse');
         }
